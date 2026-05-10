@@ -1,11 +1,23 @@
 import sqlite3
+import os
 
 def conectar():
-    """Estabelece conexão com o banco de dados SQLite"""
-    conn = sqlite3.connect('sistema_vendas.db', check_same_thread=False)
+    """Estabelece conexão com o banco de dados SQLite usando caminho absoluto dinâmico"""
+    # Descobre o caminho da pasta onde este arquivo (database.py) está localizado
+    diretorio_atual = os.path.dirname(os.path.abspath(__file__))
+    
+    # Monta o caminho completo para o arquivo .db dentro da mesma pasta
+    caminho_db = os.path.join(diretorio_atual, 'sistema_vendas.db')
+    
+    # Conecta ao banco de dados usando o caminho absoluto encontrado
+    conn = sqlite3.connect(caminho_db, check_same_thread=False)
+    
     # Habilita o acesso por nome de coluna (Row Factory)
     conn.row_factory = sqlite3.Row
+    
+    # Garante que as tabelas existam
     criar_tabelas(conn)
+    
     return conn
 
 def criar_tabelas(conn):
