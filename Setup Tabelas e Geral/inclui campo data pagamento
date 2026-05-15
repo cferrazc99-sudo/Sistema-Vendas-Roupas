@@ -1,0 +1,29 @@
+import sqlite3
+import os
+
+diretorio_atual = os.path.dirname(os.path.abspath(__file__))
+caminho_banco = os.path.join(diretorio_atual, 'sistema_vendas.db')
+
+def adicionar_coluna_data_pagamento():
+    conn = sqlite3.connect(caminho_banco)
+    cursor = conn.cursor()
+    
+    # Adiciona a coluna se ela não existir em fluxo_pagamentos
+    try:
+        cursor.execute("ALTER TABLE fluxo_pagamentos ADD COLUMN data_pagamento TEXT;")
+        print("Coluna 'data_pagamento' adicionada em fluxo_pagamentos.")
+    except sqlite3.OperationalError:
+        print("Coluna 'data_pagamento' já existe em fluxo_pagamentos.")
+
+    # Adiciona a coluna se ela não existir em vendas_pagamentos
+    try:
+        cursor.execute("ALTER TABLE vendas_pagamentos ADD COLUMN data_pagamento TEXT;")
+        print("Coluna 'data_pagamento' adicionada em vendas_pagamentos.")
+    except sqlite3.OperationalError:
+        print("Coluna 'data_pagamento' já existe em vendas_pagamentos.")
+        
+    conn.commit()
+    conn.close()
+
+if __name__ == "__main__":
+    adicionar_coluna_data_pagamento()

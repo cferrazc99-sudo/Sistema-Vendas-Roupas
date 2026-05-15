@@ -1,5 +1,16 @@
 import sqlite3
 import os
+import sys
+import sqlite3
+import os
+
+def conectar():
+    diretorio = os.path.dirname(os.path.abspath(__file__))
+    caminho_db = os.path.join(diretorio, 'sistema_vendas.db')
+    conn = sqlite3.connect(caminho_db, check_same_thread=False)
+    conn.execute("PRAGMA foreign_keys = ON;") 
+    return conn
+
 
 def conectar():
     """Conecta ao banco e garante a criação das tabelas"""

@@ -5,6 +5,56 @@ import time
 from datetime import datetime, date
 from dateutil.relativedelta import relativedelta
 from database import conectar
+from PIL import Image
+import io
+
+# --- IMPORTAÇÃO DO NOVO MÓDULO CRIADO ---
+from retirada_recurso import modulo_retirada_recurso
+
+# (Mantenha as funções auxiliares intactas: processar_foto, preparar_foto_padrao, m, img_to_b64, aplicar_estilos, gerar_grade_vencimentos)
+
+
+def processar_foto(foto_upload):
+    if foto_upload is not None:
+        # 1. Abre a imagem enviada
+        img = Image.open(foto_upload)
+        
+        # 2. Redimensiona para um tamanho padrão (Ex: 150 largura x 200 altura)
+        # O método thumbnail mantém a proporção sem distorcer
+        img.thumbnail((150, 200))
+        
+        # 3. Converte de volta para bytes para salvar no SQLite (BLOB)
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        return buf.getvalue()
+    return None
+
+from PIL import Image
+import io
+
+def preparar_foto_padrao(foto_bytes, tamanho=(150, 150)):
+    """Redimensiona a imagem para um tamanho padrão e converte para bytes."""
+    if foto_bytes is None:
+        return None
+        
+    try:
+        # Abre a imagem a partir dos bytes recebidos do st.file_uploader
+        img = Image.open(io.BytesIO(foto_bytes))
+        
+        # Converte para RGB (evita erro com arquivos PNG transparentes)
+        img = img.convert("RGB")
+        
+        # Redimensiona (thumbnail mantém a proporção, resize força o tamanho)
+        img = img.resize(tamanho, Image.LANCZOS)
+        
+        # Salva em um buffer para enviar ao banco de dados
+        buffer = io.BytesIO()
+        img.save(buffer, format="JPEG", quality=85)
+        return buffer.getvalue()
+    except Exception as e:
+        print(f"Erro ao processar imagem: {e}")
+        return foto_bytes # Retorna original se falhar
+
 
 # =========================================================================
 # 1. UTILITÁRIOS, FORMATAÇÃO E CSS (RESTAURADO TOTAL)
@@ -72,7 +122,7 @@ def gerar_grade_vencimentos(data_ini, qtd, total, entrada, periodicidade):
 # 2. MÓDULO PRINCIPAL: GESTÃO DE COMPRAS
 # =========================================================================
 
-def modulo_compras():
+def modulo_compras(usuario_id):
     aplicar_estilos()
     st.title("📦 Gestão de Compras e Fluxo Financeiro")
     
@@ -87,60 +137,154 @@ def modulo_compras():
     if 'key_edt' not in st.session_state: st.session_state.key_edt = 500
 
     # Carregamento de Dados Base
-    df_forn = pd.read_sql_query("SELECT id, nome_empresa FROM fornecedores ORDER BY nome_empresa", conn)
-    df_prod = pd.read_sql_query("SELECT * FROM produtos", conn)
+    df_forn = pd.read_sql_query(f"SELECT id, nome_empresa FROM fornecedores WHERE id_usuario = {usuario_id} ORDER BY nome_empresa", conn)
+    df_prod = pd.read_sql_query(f"SELECT * FROM produtos WHERE id_usuario = {usuario_id} ", conn)
     
-    tabs = st.tabs(["🆕 Registrar Compra", "📊 Financeiro Fornecedores", "🔍 Auditoria de Estoque", "✏ Editar/Excluir"])
+    tabs = st.tabs(["🆕 Registrar Compra", "📊 Financeiro Fornecedores", "🔍 Auditoria de Estoque", "✏ Editar/Excluir", "🏧 Retirada Caixa" ])
 
     # --- ABA 1: REGISTRAR COMPRA ---
     with tabs[0]:
         st.subheader("Entrada de Mercadoria")
         k = st.session_state.key_reg
         c1, c2, c3 = st.columns([1, 2, 1])
-        r_ref = c1.text_input("Ref / SKU", key=f"r1_{k}")
+        r_ref = c1.text_input("Ref / SKU*", key=f"r1_{k}")
         r_nom = c2.text_input("Nome do Produto*", key=f"r2_{k}")
-        r_tam = c3.text_input("Tamanho", key=f"r3_{k}")
-        
+        r_tam = c3.text_input("Tamanho*", key=f"r3_{k}")
+
         f1, f2 = st.columns([2, 1])
-        r_for = f1.selectbox("Fornecedor", df_forn['nome_empresa'].tolist(), key=f"r4_{k}")
+        r_for = f1.selectbox("Fornecedor*", df_forn['nome_empresa'].tolist(), key=f"r4_{k}")
+        # r_img = f2.file_uploader("Foto da Peça", type=['jpg', 'png'], key=f"r5_{k}")
+          # 1. Cria o campo de upload normalmente
         r_img = f2.file_uploader("Foto da Peça", type=['jpg', 'png'], key=f"r5_{k}")
+        
+        # 2. SE houver arquivo, força a exibição da foto direto na tela (Abaixo do uploader)
+        if r_img is not None:
+            f2.image(r_img, width=80)
         
         st.markdown("#### Configuração Financeira")
         v1, v2, v3, v4, v5 = st.columns(5)
-        v_tot = v1.number_input("Valor Total", min_value=0.0, step=0.01, key=f"v1_{k}")
+        v_tot = v1.number_input("Valor Total*", min_value=0.0, step=0.01, key=f"v1_{k}")
         v_ent = v2.number_input("Entrada", min_value=0.0, step=0.01, key=f"v2_{k}")
         v_par = v3.number_input("Nº Parcelas", min_value=1, value=1, key=f"v3_{k}")
         v_per = v4.selectbox("Periodicidade", ["Mensal", "Quinzenal", "Semanal"], key=f"v4_{k}")
-        v_dat = v5.date_input("Data Compra", date.today(), key=f"v5_{k}")
+        # v_dat = v5.date_input("Data Compra", date.today(), key=f"v5_{k}")
+        v_dat_raw = v5.date_input("Data Compra", date.today(), key=f"v5_{k}")
+        if v_dat_raw is None:
+                    v_dat = date.today()  # Força a data atual se o campo for limpo
+                    st.rerun()            # Reinicia a tela para redesenhar o input preenchido
+        else:
+                    v_dat = v_dat_raw     # Mantém a data escolhida pelo usuário
 
         df_sim = gerar_grade_vencimentos(v_dat, v_par, v_tot, v_ent, v_per)
         st.write("📋 **Simulação Financeira:**")
         st.dataframe(df_sim.assign(Valor=df_sim['Valor'].map(m)), use_container_width=True, hide_index=True)
 
+        # with st.form("f_reg"):
+        #     if st.form_submit_button("🚀 SALVAR COMPRA", use_container_width=True):
+        #         if r_nom and v_tot > 0:
+        #             id_f = int(df_forn[df_forn['nome_empresa'] == r_for]['id'].iloc[0])
+        #             v_unit = (v_tot - v_ent) / v_par
+                    
+        #             # --- AJUSTE DA FOTO AQUI ---
+        #             # 1. Lemos os bytes do uploader
+        #             foto_bytes = r_img.read() if r_img else None
+        #             # 2. Chamamos sua função para padronizar o tamanho
+        #             foto_final = preparar_foto_padrao(foto_bytes) 
+        #             # ---------------------------
+
+        #             cur = conn.cursor()
+        #             cur.execute("""INSERT INTO produtos (id_usuario, referencia, nome_produto, tamanho, foto, id_fornecedor, 
+        #                         valor_compra, valor_entrada, num_parcelas, valor_parcela, data_compra, vendido) 
+        #                         VALUES (?,?,?,?,?,?,?,?,?,?,?,0)""", 
+        #                         (st.session_state.usuario_id, r_ref, r_nom, r_tam, 
+        #                         foto_final, 
+        #                         id_f, v_tot, v_ent, v_par, v_unit, str(v_dat)))
+
+        #             id_p = cur.lastrowid
+
+        #             # AJUSTE: Só registra no fluxo se houver parcelas com valor (venda não quitada na entrada)
+        #             if v_tot > v_ent:
+        #                 for _, row in df_sim.iterrows():
+        #                     # Verificação adicional de segurança para não gravar linhas zeradas do DF
+        #                     if row['Valor'] > 0:
+        #                         cur.execute("""INSERT INTO fluxo_pagamentos 
+        #                                     (id_usuario, id_produto, referencia, num_parcela, data_vencimento, valor_parcela, pago) 
+        #                                     VALUES (?,?,?,?,?,?,0)""",
+        #                                 (st.session_state.usuario_id, id_p, r_ref, int(row['Parcela']), str(row['Vencimento']), row['Valor']))
+
+        #             conn.commit()
+        #             st.success("✅ Compra registrada!")
+        #             st.session_state.key_reg += 1
+        #             time.sleep(0.5); st.rerun()
+        # --- ENVELOPE APENAS A VALIDAÇÃO E O BOTÃO NO FORMULÁRIO ---
         with st.form("f_reg"):
             if st.form_submit_button("🚀 SALVAR COMPRA", use_container_width=True):
-                if r_nom and v_tot > 0:
+                
+               # 1. Validação em cascata acionada imediatamente após o clique
+                 # 1. Validação em cascata acionada imediatamente após o clique
+                if not r_ref or not r_ref.strip():
+                    st.error("🚫 O campo 'Ref / SKU' é obrigatório.")
+                    
+                elif not r_nom or not r_nom.strip():
+                    st.error("🚫 O campo 'Nome do Produto' é obrigatório.")
+                
+                elif not r_tam or not r_tam.strip():
+                    st.error("🚫 O campo 'Tamanho' é obrigatório.")
+                
+                # 🟢 ALTERADO AQUI: Validação do Fornecedor obrigatório
+                elif not r_for or r_for == "":
+                    st.error("🚫 É obrigatório selecionar um 'Fornecedor' válido.")
+                
+                elif v_tot <= 0:
+                    st.error("🚫 O 'Valor Total' da compra precisa ser maior do que zero.")
+                
+                elif v_ent > v_tot:
+                    st.error("🚫 O valor da 'Entrada' não pode ser maior do que o 'Valor Total' da peça.")
+                
+                # 🟢 ALTERADO AQUI: Proteção contra campo de Data apagado ou em branco
+                elif v_dat is None:
+                    st.error("🚫 A 'Data Compra' não pode ficar em branco. Selecione uma data válida no calendário.")
+        
+                
+                # 2. Se passar em todas as checagens, o sistema processa e salva os dados normalmente
+                else:
                     id_f = int(df_forn[df_forn['nome_empresa'] == r_for]['id'].iloc[0])
                     v_unit = (v_tot - v_ent) / v_par
+                    
+                    foto_bytes = r_img.read() if r_img else None
+                    foto_final = preparar_foto_padrao(foto_bytes) 
+                    
                     cur = conn.cursor()
-                    cur.execute("""INSERT INTO produtos (referencia, nome_produto, tamanho, foto, id_fornecedor, 
-                                valor_compra, valor_entrada, num_parcelas, valor_parcela, data_compra, vendido) 
-                                VALUES (?,?,?,?,?,?,?,?,?,?,0)""", 
-                                (r_ref, r_nom, r_tam, r_img.read() if r_img else None, id_f, v_tot, v_ent, v_par, v_unit, str(v_dat)))
+                    cur.execute("""INSERT INTO produtos 
+                    (id_usuario, referencia, nome_produto, tamanho, foto, id_fornecedor, 
+                     valor_compra, valor_entrada, num_parcelas, valor_parcela, data_compra, vendido) 
+                     VALUES (?,?,?,?,?,?,?,?,?,?,?,0)""", 
+                     (st.session_state.usuario_id, r_ref, r_nom, r_tam, foto_final, 
+                      id_f, v_tot, v_ent, v_par, v_unit, str(v_dat)))
+                    
                     id_p = cur.lastrowid
-                    for _, row in df_sim.iterrows():
-                        cur.execute("INSERT INTO fluxo_pagamentos (id_produto, referencia, num_parcela, data_vencimento, valor_parcela, pago) VALUES (?,?,?,?,?,0)",
-                                   (id_p, r_ref, int(row['Parcela']), str(row['Vencimento']), row['Valor']))
+                    
+                    if v_tot > v_ent:
+                        for _, row in df_sim.iterrows():
+                            if row['Valor'] > 0:
+                                cur.execute("""INSERT INTO fluxo_pagamentos 
+                                (id_usuario, id_produto, referencia, num_parcela, data_vencimento, valor_parcela, pago) 
+                                 VALUES (?,?,?,?,?,?,0)""",
+                                (st.session_state.usuario_id, id_p, r_ref, int(row['Parcela']), 
+                                 str(row['Vencimento']), row['Valor']))
+                    
                     conn.commit()
-                    st.success("✅ Compra registrada!")
+                    st.success("✅ Compra e parcelas registradas com sucesso!")
                     st.session_state.key_reg += 1
-                    time.sleep(0.5); st.rerun()
+                    time.sleep(1)
+                    st.rerun()
+
 
     # --- ABA 2: FINANCEIRO (INTEGRIDADE RECUPERADA) ---
     with tabs[1]:
-        df_f_base = pd.read_sql_query("""SELECT fl.*, p.nome_produto, f.nome_empresa FROM fluxo_pagamentos fl 
+        df_f_base = pd.read_sql_query(f"""SELECT fl.*, p.nome_produto, f.nome_empresa FROM fluxo_pagamentos fl 
                                       JOIN produtos p ON fl.id_produto = p.id 
-                                      LEFT JOIN fornecedores f ON p.id_fornecedor = f.id""", conn)
+                                      LEFT JOIN fornecedores f ON p.id_fornecedor = f.id WHERE fl.id_usuario = {usuario_id} """, conn)
         if not df_f_base.empty:
             hoje = date.today()
             df_f_base['venc_dt'] = pd.to_datetime(df_f_base['data_vencimento']).dt.date
@@ -179,8 +323,17 @@ def modulo_compras():
                 row[4].markdown(f'<div class="cell-data">{r["venc_dt"].strftime("%d/%m/%Y")}</div>', unsafe_allow_html=True)
                 row[5].markdown(f'<div class="cell-data">{m(r["valor_parcela"])}</div>', unsafe_allow_html=True)
                 row[6].markdown(f'<div class="cell-data"><b style="color:{cor_st}">{r["status_label"]}</b></div>', unsafe_allow_html=True)
+                
+                if r['pago'] == 1:
+                    novo_status_pago = 0
+                    data_sistema = None  # Remove a data de pagamento do banco
+                # Se a parcela não estava paga (0), o clique confirma o pagamento
+                else:
+                    novo_status_pago = 1
+                    data_sistema = date.today().strftime("%Y-%m-%d")  # Grava a data do sistema atual
+                
                 if row[7].button("PAGAR" if r['pago']==0 else "↩", key=f"f_{r['id']}"):
-                    conn.execute("UPDATE fluxo_pagamentos SET pago=? WHERE id=?", (1 if r['pago']==0 else 0, r['id']))
+                    conn.execute("UPDATE fluxo_pagamentos SET pago=?, data_pagamento = ? WHERE id=? AND id_usuario=?", (1 if r['pago']==0 else 0, data_sistema, r['id'], st.session_state.usuario_id))
                     conn.commit(); st.rerun()
 
     # --- ABA 3: AUDITORIA (CABEÇALHO AZUL + FILTROS) ---
@@ -188,7 +341,7 @@ def modulo_compras():
         ca1, ca2, ca3 = st.columns([2, 1, 1])
         f_aud_desc = ca1.text_input("Filtrar por Descrição")
         f_aud_status = ca2.selectbox("Status Estoque", ["Todos", "Em Estoque", "Vendido"])
-        f_aud_forn = ca3.selectbox("Fornecedor Auditoria", ["Todos"] + df_forn['nome_empresa'].tolist())
+        f_aud_forn = ca3.selectbox("Fornecedor", ["Todos"] + df_forn['nome_empresa'].tolist())
 
         df_a = df_prod.copy()
         if f_aud_desc: df_a = df_a[df_a['nome_produto'].str.contains(f_aud_desc, case=False)]
@@ -216,60 +369,179 @@ def modulo_compras():
             st_txt = "🟢 Estoque" if r['vendido']==0 else "🔴 Vendido"
             ac[7].markdown(f'<div class="cell-data">{st_txt}</div>', unsafe_allow_html=True)
 
-    # --- ABA 4: EDITAR/EXCLUIR (RECUPERAÇÃO TOTAL DA TABELA E REGRAS) ---
+    # # --- ABA 4: EDITAR/EXCLUIR (RECUPERAÇÃO TOTAL DA TABELA E REGRAS) ---
+    # with tabs[3]:
+    #     opcoes = [f"ID {r.id} | {r.nome_produto}" for r in df_prod.itertuples()]
+    #     escolha = st.selectbox("Selecione o Item para Editar", [""] + opcoes, key=f"sel_{st.session_state.key_edt}")
+    #     if escolha:
+    #         id_sel = int(escolha.split('|')[0].replace('ID', '').strip())
+    #         item = df_prod[df_prod['id'] == id_sel].iloc[0]
+            
+    #         # Verificações de Segurança
+    #         tem_pago = (pd.read_sql_query(f"SELECT pago FROM fluxo_pagamentos WHERE id_produto=? AND id_usuario=?", conn, params=[id_sel, st.session_state.usuario_id])['pago'] == 1).any()
+    #         foi_vendido = item['vendido'] == 1
+            
+    #         col_i, col_f = st.columns([3, 1])
+    #         e_nom = col_i.text_input("Editar Nome", value=item['nome_produto'])
+    #         e_tam = st.text_input("Tamanho", value=item.get('tamanho', ''), key=f"tam_{st.session_state.key_edt}")
+    #         e_for = col_i.selectbox("Editar Fornecedor", df_forn['nome_empresa'].tolist(), index=df_forn['nome_empresa'].tolist().index(df_forn[df_forn['id']==item['id_fornecedor']]['nome_empresa'].iloc[0]))
+    #         if item['foto']: col_f.image(item['foto'], width=100)
+    #         e_img = col_f.file_uploader("Trocar Imagem")
+            
+    #         if tem_pago: st.markdown('<div class="msg-bloqueio">⚠️ Financeiro Bloqueado: Existem parcelas pagas.</div>', unsafe_allow_html=True)
+            
+    #         ev1, ev2, ev3, ev4, ev5 = st.columns(5)
+    #         e_vt = ev1.number_input("Novo Valor Total", value=float(item['valor_compra']), disabled=tem_pago)
+    #         e_ve = ev2.number_input("Nova Entrada", value=float(item['valor_entrada']), disabled=tem_pago)
+    #         e_np = ev3.number_input("Parcelas", value=int(item['num_parcelas']), min_value=1, disabled=tem_pago)
+    #         e_pe = ev4.selectbox("Periodicidade", ["Mensal", "Quinzenal", "Semanal"], disabled=tem_pago)
+    #         e_dt = ev5.date_input("Data Base Compra", value=pd.to_datetime(item['data_compra']).date(), disabled=tem_pago)
+
+    #         # TABELA DE VENCIMENTOS NA EDIÇÃO (RESTAURADA)
+    #         st.markdown("### Visualização da Nova Grade Financeira:")
+    #         df_sim_edt = gerar_grade_vencimentos(e_dt, e_np, e_vt, e_ve, e_pe)
+    #         st.dataframe(df_sim_edt.assign(Valor=df_sim_edt['Valor'].map(m)), use_container_width=True, hide_index=True)
+
+    #         with st.form("f_edt_submit"):
+    #             if st.form_submit_button("💾 SALVAR ALTERAÇÕES", use_container_width=True):
+    #                 id_forn_e = int(df_forn[df_forn['nome_empresa'] == e_for]['id'].iloc[0])
+    #                 cur = conn.cursor()
+    #                 cur.execute("UPDATE produtos SET nome_produto=?, id_fornecedor=?, foto=?, valor_compra=?, valor_entrada=?, num_parcelas=?, tamanho=? WHERE id=? AND id_usuario=?",
+    #                            (e_nom, id_forn_e, e_img.read() if e_img else item['foto'], e_vt, e_ve, e_np, e_tam, id_sel, st.session_state.usuario_id))
+    #                 if not tem_pago:
+    #                     cur.execute("DELETE FROM fluxo_pagamentos WHERE id_produto=? AND id_usuario=?", (id_sel, st.session_state.usuario_id))
+    #                     for _, row in df_sim_edt.iterrows():
+    #                         cur.execute("INSERT INTO fluxo_pagamentos (id_usuario, id_produto, num_parcela, data_vencimento, valor_parcela, pago) VALUES (?,?,?,?,?,0)", 
+    #                                    (st.session_state.usuario_id, id_sel, int(row['Parcela']), str(row['Vencimento']), row['Valor']))
+    #                 conn.commit(); st.success("Atualizado!"); 
+                    
+    #                 if 'key_edt' in st.session_state:
+    #                     st.session_state.key_edt += 1
+    #                 else:
+    #                     st.session_state.key_edt = 1
+                    
+    #                 time.sleep(0.5)
+    #                 st.rerun()
+      # --- ABA 4: EDITAR/EXCLUIR (RECUPERAÇÃO TOTAL DA TABELA E REGRAS) ---
     with tabs[3]:
         opcoes = [f"ID {r.id} | {r.nome_produto}" for r in df_prod.itertuples()]
         escolha = st.selectbox("Selecione o Item para Editar", [""] + opcoes, key=f"sel_{st.session_state.key_edt}")
+        
         if escolha:
             id_sel = int(escolha.split('|')[0].replace('ID', '').strip())
             item = df_prod[df_prod['id'] == id_sel].iloc[0]
             
             # Verificações de Segurança
-            tem_pago = (pd.read_sql_query("SELECT pago FROM fluxo_pagamentos WHERE id_produto=?", conn, params=[id_sel])['pago'] == 1).any()
+            tem_pago = (pd.read_sql_query(f"SELECT pago FROM fluxo_pagamentos WHERE id_produto=? AND id_usuario=?", conn, params=[id_sel, st.session_state.usuario_id])['pago'] == 1).any()
             foi_vendido = item['vendido'] == 1
             
             col_i, col_f = st.columns([3, 1])
-            e_nom = col_i.text_input("Editar Nome", value=item['nome_produto'])
-            e_for = col_i.selectbox("Editar Fornecedor", df_forn['nome_empresa'].tolist(), index=df_forn['nome_empresa'].tolist().index(df_forn[df_forn['id']==item['id_fornecedor']]['nome_empresa'].iloc[0]))
-            if item['foto']: col_f.image(item['foto'], width=100)
-            e_img = col_f.file_uploader("Trocar Imagem")
+            e_nom = col_i.text_input("Editar Nome*", value=item['nome_produto'])
+            e_tam = st.text_input("Tamanho*", value=item.get('tamanho', ''), key=f"tam_{st.session_state.key_edt}")
             
-            if tem_pago: st.markdown('<div class="msg-bloqueio">⚠️ Financeiro Bloqueado: Existem parcelas pagas.</div>', unsafe_allow_html=True)
+            e_for = col_i.selectbox("Editar Fornecedor*", df_forn['nome_empresa'].tolist(), 
+                                index=df_forn['nome_empresa'].tolist().index(df_forn[df_forn['id'] == item['id_fornecedor']]['nome_empresa'].iloc[0]))
+            
+            # 1. AJUSTE: Renderização imediata da foto (Antiga vs Nova) fora do formulário
+            if item['foto']: 
+                col_f.image(item['foto'], caption="Foto Atual", width=100)
+                
+            e_img = col_f.file_uploader("Trocar Imagem", type=['jpg', 'png'])
+            
+            if e_img is not None:
+                col_f.image(e_img, caption="Nova Imagem", width=100)
+            
+            if tem_pago: 
+                st.markdown('<div class="msg-bloqueio">⚠️ Financeiro Bloqueado: Existem parcelas pagas.</div>', unsafe_allow_html=True)
             
             ev1, ev2, ev3, ev4, ev5 = st.columns(5)
-            e_vt = ev1.number_input("Novo Valor Total", value=float(item['valor_compra']), disabled=tem_pago)
+            e_vt = ev1.number_input("Novo Valor Total*", value=float(item['valor_compra']), disabled=tem_pago)
             e_ve = ev2.number_input("Nova Entrada", value=float(item['valor_entrada']), disabled=tem_pago)
             e_np = ev3.number_input("Parcelas", value=int(item['num_parcelas']), min_value=1, disabled=tem_pago)
             e_pe = ev4.selectbox("Periodicidade", ["Mensal", "Quinzenal", "Semanal"], disabled=tem_pago)
-            e_dt = ev5.date_input("Data Base Compra", value=pd.to_datetime(item['data_compra']).date(), disabled=tem_pago)
-
+            
+            # 2. AJUSTE: Proteção da Data Base Compra contra valores vazios/nulos
+            e_dt_raw = ev5.date_input("Data Base Compra*", value=pd.to_datetime(item['data_compra']).date(), disabled=tem_pago)
+            
+            if e_dt_raw is None:
+                e_dt = pd.to_datetime(item['data_compra']).date()  # Restaura a data cadastrada anteriormente
+                st.rerun()
+            else:
+                e_dt = e_dt_raw
+                
             # TABELA DE VENCIMENTOS NA EDIÇÃO (RESTAURADA)
             st.markdown("### Visualização da Nova Grade Financeira:")
             df_sim_edt = gerar_grade_vencimentos(e_dt, e_np, e_vt, e_ve, e_pe)
             st.dataframe(df_sim_edt.assign(Valor=df_sim_edt['Valor'].map(m)), use_container_width=True, hide_index=True)
-
+            
+            # 3. AJUSTE: Validação concentrada pós-clique dos campos obrigatórios
             with st.form("f_edt_submit"):
                 if st.form_submit_button("💾 SALVAR ALTERAÇÕES", use_container_width=True):
-                    id_forn_e = int(df_forn[df_forn['nome_empresa'] == e_for]['id'].iloc[0])
-                    cur = conn.cursor()
-                    cur.execute("UPDATE produtos SET nome_produto=?, id_fornecedor=?, foto=?, valor_compra=?, valor_entrada=?, num_parcelas=? WHERE id=?", 
-                               (e_nom, id_forn_e, e_img.read() if e_img else item['foto'], e_vt, e_ve, e_np, id_sel))
-                    if not tem_pago:
-                        cur.execute("DELETE FROM fluxo_pagamentos WHERE id_produto=?", (id_sel,))
-                        for _, row in df_sim_edt.iterrows():
-                            cur.execute("INSERT INTO fluxo_pagamentos (id_produto, num_parcela, data_vencimento, valor_parcela, pago) VALUES (?,?,?,?,0)", 
-                                       (id_sel, int(row['Parcela']), str(row['Vencimento']), row['Valor']))
-                    conn.commit(); st.success("Atualizado!"); time.sleep(0.5); st.rerun()
+                    
+                    if not e_nom or not e_nom.strip():
+                        st.error("🚫 O campo 'Editar Nome' é obrigatório.")
+                        
+                    elif not e_for or e_for == "":
+                        st.error("🚫 O campo 'Editar Fornecedor' é obrigatório.")
+                        
+                    elif not e_tam or not e_tam.strip():
+                        st.error("🚫 O campo 'Tamanho' é obrigatório.")
+                        
+                    elif e_vt <= 0:
+                        st.error("🚫 O 'Novo Valor Total' deve ser maior que zero.")
+                        
+                    elif e_ve > e_vt:
+                        st.error("🚫 A 'Nova Entrada' não pode ser maior que o 'Novo Valor Total'.")
+                        
+                    else:
+                        id_forn_e = int(df_forn[df_forn['nome_empresa'] == e_for]['id'].iloc[0])
+                        cur = conn.cursor()
+                        
+                        cur.execute("""UPDATE produtos SET 
+                            nome_produto=?, id_fornecedor=?, foto=?, valor_compra=?, 
+                            valor_entrada=?, num_parcelas=?, tamanho=?, data_compra=? 
+                            WHERE id=? AND id_usuario=?""",
+                            (e_nom.strip(), id_forn_e, e_img.read() if e_img else item['foto'], 
+                            e_vt, e_ve, e_np, e_tam.strip(), str(e_dt), id_sel, st.session_state.usuario_id))
+                        
+                        if not tem_pago:
+                            cur.execute("DELETE FROM fluxo_pagamentos WHERE id_produto=? AND id_usuario=?", (id_sel, st.session_state.usuario_id))
+                            for _, row in df_sim_edt.iterrows():
+                                cur.execute("""INSERT INTO fluxo_pagamentos 
+                                    (id_usuario, id_produto, num_parcela, data_vencimento, valor_parcela, pago) 
+                                    VALUES (?,?,?,?,?,0)""", 
+                                    (st.session_state.usuario_id, id_sel, int(row['Parcela']), str(row['Vencimento']), row['Valor']))
+                                    
+                        conn.commit()
+                        st.success("Atualizado!")
+                        
+                        if 'key_edt' in st.session_state:
+                            st.session_state.key_edt += 1
+                        else:
+                            st.session_state.key_edt = 1
+                            
+                        time.sleep(0.5)
+                        st.rerun()
+              
 
             # BOTÃO DE EXCLUSÃO (RESTAURADO COM TODAS AS LINHAS DE SEGURANÇA)
             st.markdown("---")
             if not tem_pago and not foi_vendido:
                 if st.button("🗑️ EXCLUIR DEFINITIVAMENTE", use_container_width=True):
-                    conn.execute("DELETE FROM fluxo_pagamentos WHERE id_produto=?", (id_sel,))
-                    conn.execute("DELETE FROM produtos WHERE id=?", (id_sel,))
+                    conn.execute("DELETE FROM fluxo_pagamentos WHERE id_produto=? AND id_usuario=?", (id_sel, st.session_state.usuario_id))
+                    conn.execute("DELETE FROM produtos WHERE id=? AND id_usuario=?", (id_sel, st.session_state.usuario_id))
                     conn.commit()
                     st.warning("Item removido do sistema."); time.sleep(0.5); st.rerun()
             else: st.info("ℹ️ Exclusão desabilitada: O item possui histórico de pagamento ou venda.")
+
+    # -------------------------------------------------------------------------
+    # INCLUSÃO: ABA 5 - CHAMADA DO MÓDULO RETIRADA DE RECURSO
+    # -------------------------------------------------------------------------
+
+    with tabs[4]:
+        modulo_retirada_recurso(uid_ativo=usuario_id, conectar=conectar)
+        
+
 
     if conn: conn.close()
 

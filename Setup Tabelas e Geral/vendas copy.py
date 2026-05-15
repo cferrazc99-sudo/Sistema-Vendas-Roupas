@@ -84,49 +84,19 @@ def modulo_vendas(usuario_id):
     # TAB 1: REGISTRAR VENDA (COM AJUSTES)
     # ==========================================
     with tab1:
-        # rk = st.session_state.v_reset_key
-        # c1, c2 = st.columns(2)
-        # dt_venda = c1.date_input("Data da Venda", date.today(), key=f"dt_v_{rk}")
-        
-        # df_cli = pd.read_sql_query(f"SELECT id, nome_cliente, is_revendedor, comissao FROM clientes WHERE id_usuario = {st.session_state.usuario_id}", conn)
-        # cli_opts = {row['nome_cliente']: row for _, row in df_cli.iterrows()}
-        # # sel_cli = c2.selectbox("Selecione o Cliente:", [""] + list(cli_opts.keys()), key=f"cli_{rk}")
-        # sel_cli = c2.selectbox("Selecione o Cliente:", [""] + list(cli_opts.keys()), key=f"cli_{rk}")
-        
-                # Captura o valor de reset de forma segura
-        rk = st.session_state.get('v_reset_key', 0)
-        
+        rk = st.session_state.v_reset_key
         c1, c2 = st.columns(2)
+        dt_venda = c1.date_input("Data da Venda", date.today(), key=f"dt_v_{rk}")
         
-        # Garante que a chave exista antes do selectbox ser desenhado
-        if 'key_edt' not in st.session_state:
-            st.session_state.key_edt = 0
-
-        # Campo de Data com chave única
-        dt_venda = c1.date_input(
-        "Data da Venda", 
-        date.today(), 
-        key=f"dt_venda_u{st.session_state.usuario_id}_{rk}"
-        )
-        
-        # Busca de clientes usando parâmetros (mais seguro)
-        query_cli = "SELECT id, nome_cliente, is_revendedor, comissao FROM clientes WHERE id_usuario = ?"
-        df_cli = pd.read_sql_query(query_cli, conn, params=[st.session_state.usuario_id])
-        
+        df_cli = pd.read_sql_query("SELECT id, nome_cliente, is_revendedor, comissao FROM clientes", conn)
         cli_opts = {row['nome_cliente']: row for _, row in df_cli.iterrows()}
+        sel_cli = c2.selectbox("Selecione o Cliente:", [""] + list(cli_opts.keys()), key=f"cli_{rk}")
         
-        # Campo de Seleção com chave única
-        sel_cli = c2.selectbox(
-            "Selecione o Cliente:", 
-            [""] + list(cli_opts.keys()), 
-            key=f"cli_{rk}"
-        )
-
         if sel_cli:
             cliente = cli_opts[sel_cli]
             st.divider()
             
-            df_p = pd.read_sql_query(f"SELECT id, referencia, nome_produto, tamanho, foto, valor_compra FROM produtos WHERE vendido = 0 and id_usuario = {st.session_state.usuario_id}", conn)
+            df_p = pd.read_sql_query("SELECT id, referencia, nome_produto, tamanho, foto, valor_compra FROM produtos WHERE vendido = 0", conn)
             ids_no_carro = [item['id'] for item in st.session_state.carrinho]
             df_p = df_p[~df_p['id'].isin(ids_no_carro)]
             
@@ -159,79 +129,28 @@ def modulo_vendas(usuario_id):
                     # AJUSTE: Lógica de Pagamento à Vista
                     e_vista = (v_ent >= venda_val)
                     q_parc = f2.number_input("Quantidade de Parcelas", 0 if e_vista else 1, 36, 0 if e_vista else 1, disabled=e_vista, key=f"q_{p.id}")
-                    # freq = f3.selectbox("Periodicidade", ["Semanal", "Quinzenal", "Mensal"], disabled=e_vista, key=f"f_{p.id}")
-                    # Adiciona a opção em branco no início e força o index=0 (primeira opção)
-                    freq = f3.selectbox(
-                        "Periodicidade", 
-                        options=[""] + ["Semanal", "Quinzenal", "Mensal"], 
-                        index=0,
-                        disabled=e_vista, 
-                        key=f"f_{p.id}_{st.session_state.key_edt}" # <--- Chave combinada para resetar ao salvar
-                    )
- 
-
-                    # if e_vista:
-                    #     st.info("✅ Venda configurada como PAGAMENTO À VISTA.")
-                        
-                    # # 2. Se for parcelado e a periodicidade estiver preenchida, renderiza os dados
-                    # elif freq != "" and q_parc > 0:
-                    #     v_p = (venda_val - v_ent) / q_parc
-                    #     vcs = calcular_vencimentos(dt_venda, freq, q_parc)
-                        
-                    #     df_simul = pd.DataFrame({
-                    #         "Parcela": [f"{i+1}ª" for i in range(q_parc)], 
-                    #         "Vencimento": [datetime.strptime(d, '%Y-%m-%d').strftime('%d/%m/%Y') for d in vcs], 
-                    #         "Valor": [m(v_p)] * q_parc
-                    #     })
-                    #     renderizar_tabela_estilizada(df_simul)
-
+                    freq = f3.selectbox("Periodicidade", ["Semanal", "Quinzenal", "Mensal"], disabled=e_vista, key=f"f_{p.id}")
                     
-                    # if st.button("➕ INCLUIR NO PEDIDO"):
-                    #     st.session_state.carrinho.append({
-                    #         'id': p.id, 'ref': p.referencia, 'nome': p.nome_produto, 'tam': p.tamanho, 
-                    #         'custo': custo, 'venda': venda_val, 'comis': comis_val, 
-                    #         'lucro': lucro_val, 'entrada': v_ent, 'vencimentos': vcs, 'v_parc': v_p, 'qtd': q_parc
-                    #     })
-                    #     st.rerun()
-                            # 1. Se for à vista, exibe apenas a informação de sucesso
-                    if e_vista:
-                        v_p = 0.0
-                        vcs = []
-                        st.info("✅ Venda configurada como PAGAMENTO À VISTA.")
-                        
-                    # 2. Se for parcelado e a periodicidade estiver preenchida, renderiza os dados
-                    elif freq != "" and q_parc > 0:
-                        v_p = (venda_val - v_ent) / q_parc
-                        vcs = calcular_vencimentos(dt_venda, freq, q_parc)
-                        
+                    v_p = (venda_val - v_ent)/q_parc if q_parc > 0 else 0
+                    vcs = calcular_vencimentos(dt_venda, freq, q_parc) if q_parc > 0 else []
+                    
+                    if not e_vista and q_parc > 0:
                         df_simul = pd.DataFrame({
                             "Parcela": [f"{i+1}ª" for i in range(q_parc)], 
                             "Vencimento": [datetime.strptime(d, '%Y-%m-%d').strftime('%d/%m/%Y') for d in vcs], 
                             "Valor": [m(v_p)] * q_parc
                         })
                         renderizar_tabela_estilizada(df_simul)
-                        
-                    # 3. Caso seja parcelado mas a periodicidade não foi escolhida
-                    else:
-                        v_p = 0.0
-                        vcs = []
-                        if not e_vista:
-                            st.warning("⚠️ Selecione a Periodicidade para simular as parcelas.")
-
-                    # --- BOTÃO COM VALIDAÇÃO DE CAMPOS ---
+                    elif e_vista:
+                        st.info("✅ Venda configurada como PAGAMENTO À VISTA.")
+                    
                     if st.button("➕ INCLUIR NO PEDIDO"):
-                        # Validação: se não for à vista e a periodicidade estiver vazia, bloqueia
-                        if not e_vista and freq == "":
-                            st.error("🚫 Erro: Escolha uma Periodicidade (Semanal, Quinzenal ou Mensal) antes de incluir no pedido!")
-                        else:
-                            # Executa a inclusão com total segurança contra UnboundLocalError
-                            st.session_state.carrinho.append({
-                                'id': p.id, 'ref': p.referencia, 'nome': p.nome_produto, 'tam': p.tamanho, 
-                                'custo': custo, 'venda': venda_val, 'comis': comis_val, 
-                                'lucro': lucro_val, 'entrada': v_ent, 'vencimentos': vcs, 'v_parc': v_p, 'qtd': q_parc
-                            })
-                            st.rerun()
-
+                        st.session_state.carrinho.append({
+                            'id': p.id, 'ref': p.referencia, 'nome': p.nome_produto, 'tam': p.tamanho, 
+                            'custo': custo, 'venda': venda_val, 'comis': comis_val, 
+                            'lucro': lucro_val, 'entrada': v_ent, 'vencimentos': vcs, 'v_parc': v_p, 'qtd': q_parc
+                        })
+                        st.rerun()
 
         if st.session_state.carrinho:
             st.divider()
@@ -239,13 +158,13 @@ def modulo_vendas(usuario_id):
             
             # --- TOTALIZADORES ---
             t_venda = sum(i['venda'] for i in st.session_state.carrinho)
-            t_custo = sum(i['custo'] + i['comis'] for i in st.session_state.carrinho)
+            t_custo = sum(i['custo'] for i in st.session_state.carrinho)
             t_lucro = sum(i['lucro'] for i in st.session_state.carrinho)
             
             st.markdown(f"""
                 <div class="metric-container">
                     <span style='margin-right:30px'><b>TOTAL VENDA:</b> {m(t_venda)}</span>
-                    <span style='margin-right:30px'><b>TOTAL CUSTO/COMISSÃO:</b> {m(t_custo)}</span>
+                    <span style='margin-right:30px'><b>TOTAL CUSTO:</b> {m(t_custo)}</span>
                     <b>TOTAL LUCRO:</b> {m(t_lucro)}
                 </div>
             """, unsafe_allow_html=True)
@@ -274,20 +193,20 @@ def modulo_vendas(usuario_id):
                     cur = conn.cursor()
                     for i in st.session_state.carrinho:
                     # Insere o registro mestre da venda
-                        cur.execute("INSERT INTO vendas (id_usuario,id_produto, id_cliente, valor_venda, valor_lucro, valor_comissao, data_venda, valor_entrada, num_parcelas) VALUES (?,?,?,?,?,?,?,?,?)", 
-                            (st.session_state.usuario_id, i['id'], cliente['id'], i['venda'], i['lucro'], i['comis'], str(dt_venda), i['entrada'], i['qtd']))
+                        cur.execute("INSERT INTO vendas (id_produto, id_cliente, valor_venda, valor_lucro, valor_comissao, data_venda, valor_entrada, num_parcelas) VALUES (?,?,?,?,?,?,?,?)", 
+                            (i['id'], cliente['id'], i['venda'], i['lucro'], i['comis'], str(dt_venda), i['entrada'], i['qtd']))
         
                         id_v = cur.lastrowid
         
                             # Marca o produto como vendido
-                        cur.execute("UPDATE produtos SET vendido=1 WHERE id=? AND id_usuario=?", (i['id'], st.session_state.usuario_id))
+                        cur.execute("UPDATE produtos SET vendido=1 WHERE id=?", (i['id'],))
         
                         # --- AJUSTE AQUI ---
                         # Só grava parcelas se houver quantidade E se o valor da parcela for maior que zero (ignora vendas à vista)
                         if i['qtd'] > 0 and i['v_parc'] > 0:
                             for idx_p, v_d in enumerate(i['vencimentos']):
-                                cur.execute("INSERT INTO vendas_pagamentos (id_usuario, id_venda, num_parcela, data_vencimento, valor_parcela, pago) VALUES (?,?,?,?,?,0)", 
-                                        (st.session_state.usuario_id, id_v, idx_p+1, v_d, i['v_parc']))
+                                cur.execute("INSERT INTO vendas_pagamentos (id_venda, num_parcela, data_vencimento, valor_parcela, pago) VALUES (?,?,?,?,0)", 
+                                        (id_v, idx_p+1, v_d, i['v_parc']))
 
                     conn.commit()
                     st.session_state.carrinho = []
@@ -301,13 +220,13 @@ def modulo_vendas(usuario_id):
     # TAB_FIN: FINANCEIRO VENDAS (MANTIDA ORIGINAL)
     # ==========================================
     with tab_fin:
-        query_fin = f"""
+        query_fin = """
         SELECT vp.*, p.nome_produto, c.nome_cliente 
         FROM vendas_pagamentos vp
         JOIN vendas v ON vp.id_venda = v.id
         JOIN produtos p ON v.id_produto = p.id
         JOIN clientes c ON v.id_cliente = c.id
-        WHERE vp.valor_parcela > 0 AND vp.id_usuario = {usuario_id}
+        WHERE vp.valor_parcela > 0
         """
         df_f_base = pd.read_sql_query(query_fin, conn)
         if not df_f_base.empty:
@@ -350,16 +269,7 @@ def modulo_vendas(usuario_id):
                 row[6].markdown(f'<div class="cell-data"><b style="color:{cor_st}">{r["status_label"]}</b></div>', unsafe_allow_html=True)
                 
                 if row[7].button("RECEBER" if r['pago']==0 else "↩", key=f"rec_{r['id']}", use_container_width=True):
-                    # Se o registro ATUAL já está como PAGO (1), o clique vai DESFAZER o pagamento
-                    if r['pago'] == 1:
-                        novo_status_pago = 0
-                        data_sistema = None  # Remove a data de pagamento do banco
-                    # Se o registro ATUAL está como NÃO PAGO (0), o clique vai CONFIRMAR o pagamento
-                    else:
-                        novo_status_pago = 1
-                        data_sistema = date.today().strftime("%Y-%m-%d")  # Grava a data do sistema atual
-
-                    conn.execute(f"UPDATE vendas_pagamentos SET pago=?, data_pagamento=? WHERE id=? AND id_usuario = {usuario_id}", (1 if r['pago']==0 else 0, data_sistema, r['id']))
+                    conn.execute("UPDATE vendas_pagamentos SET pago=? WHERE id=?", (1 if r['pago']==0 else 0, r['id']))
                     conn.commit(); st.rerun()
 
     # ==========================================
@@ -370,7 +280,7 @@ def modulo_vendas(usuario_id):
     # ==========================================
     with tab2:
         # QUERY ATUALIZADA: Agora traz o valor da Comissão (Revenda) e calcula o Lucro Efetivado real
-        query_h = f"""
+        query_h = """
         SELECT 
             v.data_venda as Data, 
             c.nome_cliente as Cliente, 
@@ -381,12 +291,11 @@ def modulo_vendas(usuario_id):
             p.valor_compra as Custo, 
             v.valor_comissao as Revenda, 
             v.valor_lucro as Lucro_Esperado,
-            (COALESCE((SELECT SUM(valor_parcela) FROM vendas_pagamentos WHERE id_venda = v.id AND pago = 1 AND id_usuario = {usuario_id}), 0) 
+            (COALESCE((SELECT SUM(valor_parcela) FROM vendas_pagamentos WHERE id_venda = v.id AND pago = 1), 0) 
              + v.valor_entrada - p.valor_compra - v.valor_comissao) as Lucro_Efetivado
         FROM vendas v 
         JOIN produtos p ON v.id_produto = p.id 
         JOIN clientes c ON v.id_cliente = c.id 
-        WHERE v.id_usuario = {usuario_id}  -- <--- TRAVA DE SEGURANÇA AQUI
         ORDER BY v.id DESC
         """
         df_h = pd.read_sql_query(query_h, conn)
@@ -415,7 +324,7 @@ def modulo_vendas(usuario_id):
             st.markdown("""<div style="background-color: #005f73; padding: 10px; border-radius: 5px; color: white; font-weight: bold; font-size: 11px; text-align:center;">
                 <table style="width:100%; border-collapse: collapse;">
                     <tr>
-                        <td style="width:10%">Data Venda</td>
+                        <td style="width:10%">Data Vend</td>
                         <td style="width:15%">Cliente</td>
                         <td style="width:18%">Produto</td>
                         <td style="width:9%">Venda</td>
@@ -453,20 +362,17 @@ def modulo_vendas(usuario_id):
     # TAB 3: EDITAR / EXCLUIR (MANTIDA ORIGINAL)
     # ==========================================
     with tab3:
-        st.subheader("✏ Alteração e Exclusão de Vendas")
-        df_v_edit = pd.read_sql_query(f"""SELECT v.id, v.data_venda, c.nome_cliente, p.referencia, p.nome_produto, v.id_produto FROM vendas v JOIN clientes c ON v.id_cliente = c.id JOIN produtos p ON v.id_produto = p.id WHERE v.id_usuario = {usuario_id} ORDER BY v.id DESC""", conn)
+        st.subheader("✏ Alteração e Renegociação")
+        df_v_edit = pd.read_sql_query("""SELECT v.id, v.data_venda, c.nome_cliente, p.referencia, p.nome_produto, v.id_produto FROM vendas v JOIN clientes c ON v.id_cliente = c.id JOIN produtos p ON v.id_produto = p.id ORDER BY v.id DESC""", conn)
         opts_v = {f"ID {r.id} | {r.nome_cliente} | {r.referencia} - {r.nome_produto}": (r.id, r.id_produto) for r in df_v_edit.itertuples()}
         sel_v = st.selectbox("Selecione a venda:", [""] + list(opts_v.keys()), key=f"sel_v_ed_{st.session_state.v_reset_key}")
         
         if sel_v:
             id_v, id_prod = opts_v[sel_v]
-            # v_info = conn.execute(f"SELECT * FROM vendas WHERE id=? AND id_usuario = {usuario_id}", (id_v,)).fetchone()
-            # Trazemos os campos ordenados para mapear nos índices corretos
-            v_info = conn.execute(f"SELECT id, id_usuario, id_produto, valor_venda, valor_lucro, valor_comissao, data_venda, valor_entrada, num_parcelas FROM vendas WHERE id=? AND id_usuario = {usuario_id}", (id_v,)).fetchone()
-
-            p_data = conn.execute(f"SELECT foto, valor_compra, nome_produto, referencia FROM produtos WHERE id=? AND id_usuario = {usuario_id}", (id_prod,)).fetchone()
-            c_data = conn.execute(f"SELECT comissao, is_revendedor FROM clientes WHERE id=? AND id_usuario = {usuario_id}", (v_info[2],)).fetchone()
-            p_pago = pd.read_sql_query(f"SELECT pago FROM vendas_pagamentos WHERE id_venda={id_v} AND id_usuario = {usuario_id}", conn)['pago'].any()
+            v_info = conn.execute("SELECT * FROM vendas WHERE id=?", (id_v,)).fetchone()
+            p_data = conn.execute("SELECT foto, valor_compra, nome_produto, referencia FROM produtos WHERE id=?", (id_prod,)).fetchone()
+            c_data = conn.execute("SELECT comissao, is_revendedor FROM clientes WHERE id=?", (v_info[2],)).fetchone()
+            p_pago = pd.read_sql_query(f"SELECT pago FROM vendas_pagamentos WHERE id_venda={id_v}", conn)['pago'].any()
             
             if p_pago: st.error("🚫 BLOQUEIO: Existem parcelas pagas.")
             
@@ -480,27 +386,12 @@ def modulo_vendas(usuario_id):
             
             cs1, cs2, cs3 = st.columns(3)
             g_at = ((float(v_info[3]) / custo_p) - 1) * 100
-
-
-            # # Mostra o conteúdo de v_info[3] e da linha inteira antes que a tela quebre
-            # st.warning(f"⚠️ O valor em v_info[3] é: {v_info[3]}")
-            # st.warning(f"⚠️ O valor em custo_p é: {custo_p}")
-            # st.warning(f"⚠️ O valor em g_at é: {g_at}")
-            # st.code(f"Linha completa recuperada do banco: {v_info}")
-
-            # try:
-            #     new_g = cs1.number_input("Novo Ganho (%)", 0.0, 500.0, float(g_at), step=5.0, disabled=p_pago, key="ed_g")
-            # except Exception as e:
-            #     st.error(f"O Streamlit travou no number_input pelo seguinte motivo: {e}")
-
-
             new_g = cs1.number_input("Novo Ganho (%)", 0.0, 500.0, float(g_at), step=5.0, disabled=p_pago, key="ed_g")
             new_v = custo_p * (1 + (new_g / 100))
             new_e = cs2.number_input("Nova Entrada", 0.0, new_v, float(v_info[7]), disabled=p_pago, key="ed_e")
             new_q = cs3.number_input("Novas Parcelas", 1, 36, int(v_info[8]), disabled=p_pago, key="ed_q")
             new_dt = cs1.date_input("Nova Data", datetime.strptime(v_info[6], '%Y-%m-%d').date(), disabled=p_pago, key="ed_dt")
             new_fr = cs2.selectbox("Nova Periodicidade", ["Semanal", "Quinzenal", "Mensal"], disabled=p_pago, key="ed_fr")
-            
             
             new_comis = new_v * (c_data[0] / 100) if c_data[1] else 0.0
             new_lucro = new_v - custo_p - new_comis
@@ -514,66 +405,18 @@ def modulo_vendas(usuario_id):
             renderizar_tabela_estilizada(df_sim_edt)
             
             be1, be2 = st.columns(2)
-            # --- BOTÃO CONFIRMAR ALTERAÇÕES ---
-            if be1.button("💾 CONFIRMAR ALTERAÇÕES", type="primary", disabled=p_pago, use_container_width=True, key=f"conf_btn_{id_v}"):
-               try:
-                # 1. Executa no Banco
-                conn.execute("UPDATE vendas SET valor_venda=?, valor_lucro=?, valor_comissao=?, data_venda=?, valor_entrada=?, num_parcelas=? WHERE id=? AND id_usuario = ?", 
-                            (new_v, new_lucro, new_comis, str(new_dt), new_e, new_q, id_v, usuario_id))
-                conn.execute("DELETE FROM vendas_pagamentos WHERE id_venda=? AND id_usuario = ?", (id_v, usuario_id))
-                
+            if be1.button("💾 CONFIRMAR ALTERAÇÕES", type="primary", disabled=p_pago, use_container_width=True):
+                conn.execute("UPDATE vendas SET valor_venda=?, valor_lucro=?, valor_comissao=?, data_venda=?, valor_entrada=?, num_parcelas=? WHERE id=?", (new_v, new_lucro, new_comis, str(new_dt), new_e, new_q, id_v))
+                conn.execute("DELETE FROM vendas_pagamentos WHERE id_venda=?", (id_v,))
                 for idx, vd in enumerate(vcs_n): 
-                    conn.execute("INSERT INTO vendas_pagamentos (id_usuario, id_venda, num_parcela, data_vencimento, valor_parcela, pago) VALUES (?,?,?,?,?,0)", 
-                                (st.session_state.usuario_id, id_v, idx+1, vd, v_p_n))
-                
-                conn.commit()
-
-                # 2. LIMPEZA E MENSAGEM
-                # Isso limpa campos que podem estar presos no cache do Streamlit
-                st.session_state.v_reset_key += 1 
-                
-                # Mensagem centralizada
-                st.markdown("""
-                    <div style="display: flex; justify-content: center; align-items: center; background-color: #d4edda; color: #155724; 
-                                padding: 30px; border-radius: 15px; border: 2px solid #c3e6cb; margin: 20px 0; font-size: 28px; font-weight: bold;">
-                        ✅ ATUALIZADO COM SUCESSO!
-                    </div>
-                """, unsafe_allow_html=True)
-                
-                # 3. PAUSA E ATUALIZAÇÃO FORÇADA
-                time.sleep(1.5)
-                
-                # Se você usa modais (como st.popover ou st.expander), 
-                # às vezes é necessário limpar a seleção de venda atual no session_state aqui.
-                # st.session_state["venda_selecionada"] = None 
-
-                st.rerun()
-
-               except Exception as e:
-                st.error(f"Erro crítico: {e}")
-
-
+                    conn.execute("INSERT INTO vendas_pagamentos (id_venda, num_parcela, data_vencimento, valor_parcela, pago) VALUES (?,?,?,?,0)", (id_v, idx+1, vd, v_p_n))
+                conn.commit(); st.session_state.v_reset_key += 1; st.success("Atualizado!"); time.sleep(1.5); st.rerun()
             
-            # --- BOTÃO EXCLUIR VENDA ---
             if be2.button("🗑 EXCLUIR VENDA TOTALMENTE", disabled=p_pago, use_container_width=True):
-                conn.execute("DELETE FROM vendas_pagamentos WHERE id_venda=? AND id_usuario = ?", (id_v, usuario_id))
-                conn.execute("UPDATE produtos SET vendido=0 WHERE id=? AND id_usuario = ?", (id_prod, usuario_id))
-                conn.execute("DELETE FROM vendas WHERE id=? AND id_usuario = ?", (id_v, usuario_id))
-                conn.commit()
-                
-                # Mensagem Centralizada Grande (Vermelha)
-                st.markdown("""
-                    <div style="display: flex; justify-content: center; align-items: center; background-color: #f8d7da; color: #721c24; 
-                                padding: 30px; border-radius: 15px; border: 2px solid #f5c6cb; margin: 20px 0; font-size: 28px; font-weight: bold;">
-                        🗑 VENDA EXCLUÍDA!
-                    </div>
-                """, unsafe_allow_html=True)
-                
-                st.session_state.v_reset_key += 1
-                time.sleep(2)
-                st.rerun()
-
-
+                conn.execute("DELETE FROM vendas_pagamentos WHERE id_venda=?;", (id_v,))
+                conn.execute("UPDATE produtos SET vendido=0 WHERE id=?;", (id_prod,))
+                conn.execute("DELETE FROM vendas WHERE id=?;", (id_v,))
+                conn.commit(); st.session_state.v_reset_key += 1; st.warning("Excluída!"); time.sleep(1.5); st.rerun()
 
     conn.close()
 
